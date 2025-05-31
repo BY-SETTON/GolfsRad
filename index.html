@@ -186,10 +186,8 @@
     <div id="menuModal" class="menu-modal">
       <button id="playButton" class="play-button">Play</button>
     </div>
-    <div><strong>Controls:</strong></div>
-    <div>WASD: Move Player</div>
-    <div>Mouse Left/Right: Rotate Camera</div>
-    <div><br>Move your mouse to orbit around the player!</div>
+    <div>WASD: Shuffle the plater</div>
+    <div>arrows: Walk</div>
     <div class="oval-pad">
       <canvas id="pad-canvas" width="80" height="150"></canvas>
     </div>
@@ -549,7 +547,7 @@
 
     // Create player
     createPlayer();
-    addDirectionLineToPlayer(player);
+    // addDirectionLineToPlayer(player);
 
     // camera scroll
     setupCameraZoom();
@@ -571,9 +569,12 @@
       rowOffset: 20,   // distance from center to each row
       gapFromTee: 10  // leave space in front of tee
     });
-    addHelper();
-    // scene.add(helper);
+
+    // Helper
+    // addHelper();
+
     scene.add(obstacles);
+
     // Create some reference objects
     createReferenceObjects();
 
