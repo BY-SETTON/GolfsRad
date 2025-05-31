@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbital Camera Game</title>
+  <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #gameContainer {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #instructions {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: white;
+      z-index: 100;
+      font-size: 16px;
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    canvas {
+      cursor: crosshair;
+    }
+
+    .oval-pad {
+      position: fixed;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 80px;
+      height: 150px;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 50% / 100%;
+      overflow: hidden;
+      z-index: 1000;
+      pointer-events: auto;
+    }
+
+    #pad-canvas {
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    #club-selector {
+      position: fixed;
+      top: 100px;
+      right: 20px;
+      background: rgba(30, 30, 30, 0.85);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-family: sans-serif;
+      z-index: 1000;
+      width: 150px;
+    }
+
+    #club-selector h3 {
+      margin-top: 0;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    #club-selector ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    #club-selector li {
+      cursor: pointer;
+      padding: 5px;
+      margin: 5px 0;
+      border-radius: 5px;
+      transition: background 0.2s;
+    }
+
+    #club-selector li:hover,
+    #club-selector li.selected {
+      background: #4ECDC4;
+    }
+
+  </style>
+</head>
+<body>
+<div id="gameContainer">
+  <div id="instructions">
+    <div><strong>Controls:</strong></div>
+    <div>WASD: Move Player</div>
+    <div>Mouse Left/Right: Rotate Camera</div>
+    <div><br>Move your mouse to orbit around the player!</div>
+    <div class="oval-pad">
+      <canvas id="pad-canvas" width="80" height="150"></canvas>
+    </div>
+    <div id="club-selector">
+      <h3>Select Club</h3>
+      <ul>
+        <li data-club="Driver" class="selected">Driver</li>
+        <li data-club="Iron">Iron</li>
+        <li data-club="Wedge">Wedge</li>
+        <li data-club="Putter">Putter</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+  // perfermance
+  const stats = new Stats()
+  stats.showPanel(1) // 0: fps, 1: ms, 2: mb, 3+: custom
+  document.body.appendChild(stats.dom)
+
+  // Game variables
+  let scene, camera, renderer, player, golfBall, shaft, green, hole;
+  let keys = {};
+
+  // clubs
+  const clubs = [
+    {
+      name: "Driver",
+      angle: 30,
+      powerMultiplier: 10,
+      description: "Long-distance club, maximum power"
+    },
+    {
+      name: "Iron",
+      angle: 45,
+      powerMultiplier: 13,
+      description: "Mid-range shots with balanced power"
+    },
+    {
+      name: "Wedge",
+      angle: 55,
+      powerMultiplier: 18,
+      description: "Short-range chip shots"
+    },
+    {
+      name: "Putter",
+      angle: 0,
+      powerMultiplier: 25,
+      description: "Low power for precision on the green"
+    }
+  ];
+  let selectedClubName = "Driver"; // Default
+
+  // phyics
+  const gravity = 9.8;
+  const friction = 18; // Adjust this value for more/less rolling
+
+  //clock
+  const clock = new THREE.Clock();
+
+  // Camera orbit variables
+  let cameraAngle = 0;
+  let cameraDistance = 8;
+  let cameraAzimuth = 0;     // Horizontal angle (left/right)
+  let cameraPolar = Math.PI / 2.5;  // Vertical angle (up/down), in radians
+  const cameraTarget = new THREE.Vector3();
+  let followingBall = false;
+  let isZoomingInOrOut = false;
+  let scrollTimeout
+
+  // control pad
+  const canvas = document.getElementById('pad-canvas');
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  let path = [];
+  let upwardDistance = 0;
+  let downwardDistance = 0;
+
+  // indicator Cone
+  let indicatorCone;
+
+  // golfBall
+  let ballOffsetToPlayer
+
+  // Player movement
+  const walkSpeed = 0.15;
+  const walkRotationSpeed = 0.015;
+  const shuffleSpeed = 0.004;
+  const rotationSpeed = 0.004;
+
+  // player swing
+  let swingProgress = 0;
+  let swinging = false;
+
+  // Mouse controls
+  let isMouseDown = false;
+  let isPointerOverPad = false;
+
+  const padElement = document.querySelector('.oval-pad');
+
+  padElement.addEventListener('mouseenter', () => {
+    isPointerOverPad = true;
+  });
+  padElement.addEventListener('mouseleave', () => {
+    isPointerOverPad = false;
+  });
+
+  const clubElements = document.querySelectorAll('#club-selector li');
+  clubElements.forEach(li => {
+    li.addEventListener('click', () => {
+      selectedClubName = li.dataset.club;
+
+      clubElements.forEach(el => el.classList.remove('selected'));
+      li.classList.add('selected');
+    });
+  });
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+  }
+  resizeCanvas();
+
+  function getRelativePos(e) {
+    if(!e) return;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX || e.touches[0].clientX) - rect.left,
+      y: (e.clientY || e.touches[0].clientY) - rect.top
+    };
+  }
+
+  function moveDrawing(e) {
+    if (!drawing) return;
+
+    const newPos = getRelativePos(e);
+    const lastPos = path[path.length - 1];
+
+    if (lastPos) {
+      const dy = newPos.y - lastPos.y;
+      if (dy > 0) {
+        downwardDistance += dy;
+      } else {
+        upwardDistance += Math.abs(dy);
+      }
+    }
+
+    path.push(newPos);
+    drawPath();
+    e.preventDefault();
+  }
+
+  function stopDrawing() {
+    drawing = false;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    swingClub();
+
+    // Reset everything
+    path = [];
+  }
+
+  function drawPath() {
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff';
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i];
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  // Mouse events
+  document.addEventListener('keydown', (event) => {
+    if(!isPointerOverPad){
+      return
+    }
+    if (event.code === 'Space' && !drawing) {
+      upwardDistance = 0;
+      downwardDistance = 0;
+      drawing = true;
+      path.push(getRelativePos(e));
+      path = [];
+    }
+  });
+
+  document.addEventListener('keyup', (event) => {
+    if (event.code === 'Space') {
+      stopDrawing();
+    }
+  });
+  canvas.addEventListener('mousemove', moveDrawing);
+
+  function init() {
+    // Create scene
+    scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+
+    // Create camera
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+    // Create renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x87CEEB); // Sky blue
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('gameContainer').appendChild(renderer.domElement);
+
+    // Create lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(20, 20, 20);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 100;
+    directionalLight.shadow.camera.left = -50;
+    directionalLight.shadow.camera.right = 50;
+    directionalLight.shadow.camera.top = 50;
+    directionalLight.shadow.camera.bottom = -50;
+    scene.add(directionalLight);
+
+    // Create ground
+    const groundGeometry = new THREE.PlaneGeometry(200, 200);
+    const groundMaterial = new THREE.MeshLambertMaterial({
+      color: 0x90EE90 // Light green
+    });
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Add grid pattern to ground for better depth perception
+    const gridHelper = new THREE.GridHelper(200, 40, 0x228B22, 0x228B22);
+    gridHelper.material.opacity = 0.3;
+    gridHelper.material.transparent = true;
+    scene.add(gridHelper);
+
+    // Create player
+    createPlayer();
+    addDirectionLineToPlayer(player);
+
+    // camera scroll
+    // setupCameraZoom();
+
+    // Create ball
+    createGolfBall();
+
+    //Green
+    createGreen();
+
+    // Create some reference objects
+    createReferenceObjects();
+
+    // Setup controls
+    setupControls();
+
+    // Initial camera position
+    resetCamera();
+
+    // Start game loop
+    animate();
+  }
+
+  function createPlayer() {
+    // Create a more interesting player character
+    const playerGroup = new THREE.Group();
+
+    // Body
+    const bodyGeometry = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+    const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 }); // Royal blue
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.y = 0.6;
+    body.castShadow = true;
+    playerGroup.add(body);
+
+    // Head
+    const headGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+    const headMaterial = new THREE.MeshLambertMaterial({ color: 0xFFDBAC }); // Skin color
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = 1.5;
+    head.castShadow = true;
+    playerGroup.add(head);
+
+    // Arms
+    const armGeometry = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+    const armMaterial = new THREE.MeshLambertMaterial({ color: 0x4169E1 });
+
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(-0.3, 0.9, 0.3);
+    leftArm.rotation.x = -Math.PI / 5.5;
+    leftArm.rotation.z = Math.PI / 9.5;
+    leftArm.castShadow = true;
+
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(0.3, 0.9, 0.3);
+    rightArm.rotation.x = -Math.PI / 5.5;
+    rightArm.rotation.z = -Math.PI / 9.5;
+    rightArm.castShadow = true;
+
+    // Golf club shaft
+    const shaftGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.6, 8);
+    const shaftMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+    shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+    shaft.castShadow = true;
+    shaft.rotation.x = -Math.PI / 5.8;
+    shaft.position.set(0, 0, 0.8);
+
+    // Group for swinging arms and shaft
+    const swingGroup = new THREE.Group();
+    swingGroup.position.set(0, 1.5, 0); // Pivot point at head height
+
+    // Adjust part positions relative to swing group pivot
+    leftArm.position.sub(swingGroup.position);
+    rightArm.position.sub(swingGroup.position);
+    shaft.position.sub(swingGroup.position);
+
+    swingGroup.add(leftArm);
+    swingGroup.add(rightArm);
+    swingGroup.add(shaft);
+
+    playerGroup.add(swingGroup);
+
+    // Legs
+    const legGeometry = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+    const legMaterial = new THREE.MeshLambertMaterial({ color: 0x2F4F4F }); // Dark slate gray
+
+    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.position.set(-0.2, -0.4, 0);
+    leftLeg.castShadow = true;
+    playerGroup.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.position.set(0.2, -0.4, 0);
+    rightLeg.castShadow = true;
+    playerGroup.add(rightLeg);
+
+    // Finalize player
+    player = playerGroup;
+    player.position.set(0, 0.8, 0);
+    player.rotation.y = THREE.MathUtils.degToRad(80);
+    player.swingGroup = swingGroup; // store swingGroup reference for animation
+
+    scene.add(player);
+  }
+
+  function addDirectionLineToPlayer(player) {
+    const origin = new THREE.Vector3(0, 1.2, 0.2); // Approx chest position
+    const length = 1.5;
+    const direction = new THREE.Vector3(0, 0, 1); // Forward in Z
+
+    const arrowMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+    const arrowGeometry = new THREE.BufferGeometry().setFromPoints([
+      origin,
+      origin.clone().add(direction.clone().multiplyScalar(length))
+    ]);
+
+    const line = new THREE.Line(arrowGeometry, arrowMaterial);
+    line.name = 'directionLine';
+
+    player.add(line);
+  }
+
+  function swingClub() {
+    if (swinging) return;
+
+    ballPosition();
+
+    swinging = true;
+    swingProgress = 0;
+  }
+
+  function createGolfBall() {
+    const ballRadius = 0.1;
+    const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
+    const ballMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff }); // white
+    const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+
+    ball.castShadow = true;
+    ball.receiveShadow = true;
+
+    // Place it just above the floor (assuming floor is at y = 0)
+    ball.position.set(1, ballRadius, 0);
+
+    ball.velocity = new THREE.Vector3(0, 0, 0);
+    golfBall = ball;
+    scene.add(golfBall);
+
+    return golfBall; // in case you want to move or reference it later
+  }
+
+  function updatePlayerRotation() {
+    if (!player) return;
+
+    if (keys['KeyQ']) {
+      player.rotation.y += rotationSpeed; // Counterclockwise
+    }
+
+    if (keys['KeyE']) {
+      player.rotation.y -= rotationSpeed; // Clockwise
+    }
+  }
+
+  function createReferenceObjects() {
+    const colors = [0xFF6B6B, 0x4ECDC4, 0x45B7D1, 0xF9CA24, 0xF0932B];
+
+    // Deterministic cubes
+    for (let i = 0; i < 12; i++) {
+      const width = 1 + (i % 3) * 0.5;
+      const height = 1.5 + (i % 4) * 0.4;
+      const depth = 1 + ((i + 2) % 3) * 0.6;
+      const geometry = new THREE.BoxGeometry(width, height, depth);
+      const material = new THREE.MeshLambertMaterial({
+        color: colors[i % colors.length]
+      });
+      const cube = new THREE.Mesh(geometry, material);
+
+      const angle = (i / 12) * Math.PI * 2;
+      const distance = 15 + (i % 4) * 5;
+      cube.position.set(
+              Math.cos(angle) * distance,
+              height / 2,
+              Math.sin(angle) * distance
+      );
+      cube.castShadow = true;
+      scene.add(cube);
+    }
+
+    // Deterministic trees
+    for (let i = 0; i < 8; i++) {
+      const tree = createSimpleTree();
+      const angle = (i / 8) * Math.PI * 2;
+      const distance = 25 + (i % 4) * 4;
+      tree.position.set(
+              Math.cos(angle) * distance,
+              0,
+              Math.sin(angle) * distance
+      );
+      scene.add(tree);
+    }
+  }
+
+  function createIndicatorCone() {
+    const geometry = new THREE.ConeGeometry(1, 5, 20);
+    const material = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+    const cone = new THREE.Mesh(geometry, material);
+    cone.rotation.x = Math.PI; // upside down
+    cone.visible = false;
+    scene.add(cone);
+    return cone;
+  }
+
+  function showConeAboveBallIfFar( threshold = 5) {
+    if (!indicatorCone) {
+      indicatorCone = createIndicatorCone();
+    }
+
+    const distance = player.position.distanceTo(golfBall.position);
+    const isGrounded = golfBall.position.y < 0.15 && golfBall.velocity?.lengthSq() < 0.001;
+
+    if (distance > threshold && isGrounded) {
+      indicatorCone.visible = true;
+      indicatorCone.position.set(golfBall.position.x, golfBall.position.y + 5, golfBall.position.z);
+
+      // Bobbing animation (simple up/down)
+      const time = Date.now() * 0.002;
+      indicatorCone.position.y += Math.sin(time) * 1;
+    } else {
+      indicatorCone.visible = false;
+    }
+  }
+
+  function createSimpleTree() {
+    const tree = new THREE.Group();
+
+    // Trunk
+    const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 4, 8);
+    const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+    trunk.position.y = 2;
+    trunk.castShadow = true;
+    tree.add(trunk);
+
+    // Foliage
+    const foliageGeometry = new THREE.SphereGeometry(2, 12, 8);
+    const foliageMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+    const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+    foliage.position.y = 5;
+    foliage.castShadow = true;
+    tree.add(foliage);
+
+    return tree;
+  }
+
+  function setupControls() {
+
+    // Initialize mouse position
+    let mouseX = window.innerWidth / 2;
+    let mouseY = window.innerHeight / 2;
+
+    // Keyboard input
+    document.addEventListener('keydown', (event) => {
+      keys[event.code] = true;
+    });
+
+    document.addEventListener('keyup', (event) => {
+      keys[event.code] = false;
+    });
+
+    // Mouse button tracking
+    document.addEventListener('mousedown', (event) => {
+      if (event.button === 0) { // Only left click
+        isMouseDown = true;
+        mouseX = event.clientX; // ← sync current mouse position
+        mouseY = event.clientY;
+      }
+    });
+
+    document.addEventListener('mouseup', (event) => {
+      if (event.button === 0) {
+        isMouseDown = false;
+      }
+    });
+
+    // Mouse movement (only when holding left click)
+    document.addEventListener('mousemove', (event) => {
+      if (!isMouseDown || isPointerOverPad) return;
+
+      const deltaX = event.clientX - mouseX;
+      const deltaY = event.clientY - mouseY;
+
+      mouseX = event.clientX;
+      mouseY = event.clientY;
+
+      cameraAzimuth -= deltaX * 0.005;
+      cameraPolar -= deltaY * 0.005;
+
+      // Clamp polar angle to avoid flipping
+      const minPolar = 0.1;
+      const maxPolar = Math.PI - 0.1;
+      cameraPolar = Math.max(minPolar, Math.min(maxPolar, cameraPolar));
+    });
+
+    // Optional: prevent context menu on right-click
+    // document.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  function shufflePlayer(){
+    if (!player || !camera) return;
+
+    const direction = new THREE.Vector3();
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+
+    // Get the right direction by crossing forward with up
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+
+    // Determine movement based on key input
+    if (keys['KeyW']) {
+      direction.add(forward);
+    }
+    if (keys['KeyS']) {
+      direction.sub(forward);
+    }
+    if (keys['KeyA']) {
+      direction.sub(right);
+    }
+    if (keys['KeyD']) {
+      direction.add(right);
+    }
+
+    // Normalize and apply speed
+    if (direction.length() > 0) {
+      direction.normalize().multiplyScalar(shuffleSpeed);
+      player.position.add(direction);
+    }
+  }
+
+  function walkPlayer() {
+    const moveDirection = new THREE.Vector3();
+
+    const angle = player.rotation.y;
+
+    // Forward / backward
+    if (keys['ArrowUp']) {
+      moveDirection.x += Math.sin(angle);
+      moveDirection.z += Math.cos(angle);
+      followPlayerSmooth();
+    }
+    if (keys['ArrowDown']) {
+      moveDirection.x -= Math.sin(angle);
+      moveDirection.z -= Math.cos(angle);
+      followPlayerSmooth();
+    }
+
+    // Apply movement
+    if (moveDirection.length() > 0) {
+      moveDirection.normalize();
+      player.position.add(moveDirection.multiplyScalar(walkSpeed));
+    }
+
+    // Rotate player left/right
+    if (keys['ArrowLeft']) {
+      player.rotation.y += walkRotationSpeed;
+      followPlayerSmooth();
+    }
+    if (keys['ArrowRight']) {
+      player.rotation.y -= walkRotationSpeed;
+      followPlayerSmooth();
+    }
+  }
+
+  function followPlayerSmooth() {
+    if (!player) return;
+
+    const fixedCameraDistance = 5
+
+    const height = 3;
+    const angle = player.rotation.y;
+
+    const offsetX = Math.sin(angle) * fixedCameraDistance;
+    const offsetZ = Math.cos(angle) * fixedCameraDistance;
+
+    const playerPos = player.position;
+
+    cameraTarget.set(
+            playerPos.x - offsetX,
+            playerPos.y + height,
+            playerPos.z - offsetZ
+    );
+
+    camera.position.lerp(cameraTarget, 0.1); // smooth move
+    camera.lookAt(playerPos.x, playerPos.y + 1.2, playerPos.z);
+  }
+
+  function checkShaftBallCollision() {
+    // Get the bottom of the shaft in local coordinates
+    const localBottom = new THREE.Vector3(0, -shaft.geometry.parameters.height / 2, 0);
+
+    // Convert to world coordinates
+    const worldBottom = shaft.localToWorld(localBottom.clone());
+
+    // Get distance to the golf ball
+    const distance = worldBottom.distanceTo(golfBall.position);
+
+    // Collision threshold
+    const collisionDistance = 0.15; // adjust based on ball size and shaft thickness
+
+    if (distance < collisionDistance) {
+      console.log("Shaft hit the ball!");
+
+      // Optional: Launch the ball here if not already launched
+      if (!golfBall.launched) {
+        golfBall.launched = true;
+        launchBall(); // you can customize power/angle
+      }
+    }
+  }
+
+  function createGreen() {
+    const shape = new THREE.Shape();
+    shape.absarc(4, 3, 3, Math.PI, Math.PI * 1.5, false);       // Top left curve
+    shape.absarc(7, 2, 6, Math.PI * 1.5, Math.PI * 2, false);   // Top right bump
+    shape.absarc(7, 8, 6, 0, Math.PI * 0.5, false);             // Bottom right bump
+    shape.absarc(4, 8, 9, Math.PI * 0.5, Math.PI, false);       // Bottom left curve
+
+    const geometry = new THREE.ShapeGeometry(shape);
+    const material = new THREE.MeshLambertMaterial({
+      color: 0x67c87a,
+      side: THREE.DoubleSide,
+    });
+
+    green = new THREE.Mesh(geometry, material);
+    green.rotation.x = -Math.PI / 2;
+
+    // Position the green in front of the player
+    const direction = new THREE.Vector3(1, 0, 0)
+            .applyQuaternion(player.quaternion)
+            .normalize();
+
+    const greenPosition = new THREE.Vector3()
+            .copy(player.position)
+            .add(direction.multiplyScalar(80));
+
+    green.position.set(greenPosition.x, 0.01, greenPosition.z);
+    green.receiveShadow = true;
+    scene.add(green);
+
+    // === Add flag and hole ===
+
+    // Compute approximate center of the green
+    geometry.computeBoundingBox();
+    const bbox = geometry.boundingBox;
+    const center2D = new THREE.Vector2(
+            (bbox.max.x + bbox.min.x) / 2,
+            (bbox.max.y + bbox.min.y) / 2
+    );
+
+    const center3D = new THREE.Vector3(center2D.x +4, 2, center2D.y)
+            .applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+            .add(greenPosition);
+
+    // Hole
+    const holeGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.02, 16);
+    const holeMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    hole = new THREE.Mesh(holeGeometry, holeMaterial);
+    hole.position.set(center3D.x, 0.01, center3D.z);
+    scene.add(hole);
+
+    // Flag pole
+    const poleGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.5, 8);
+    const poleMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+    pole.position.set(center3D.x, 0.75, center3D.z);
+    pole.castShadow = true;
+    scene.add(pole);
+
+    // Flag
+    const flagGeometry = new THREE.PlaneGeometry(0.5, 0.3);
+    const flagMaterial = new THREE.MeshLambertMaterial({
+      color: 0xff0000,
+      side: THREE.DoubleSide,
+    });
+    const flag = new THREE.Mesh(flagGeometry, flagMaterial);
+    flag.position.set(center3D.x, 1.3, center3D.z + 0.25);
+    flag.rotation.y = Math.PI / 2;
+    scene.add(flag);
+
+    return green;
+  }
+
+  function followBallAfterDelay() {
+    setTimeout(() => {
+      followingBall = true;
+    }, 900); // Start following after 1 second
+  }
+
+  function resetCamera() {
+    if (!player) return;
+
+    const playerPos = player.position;
+
+    // Convert spherical to Cartesian coordinates
+    const x = playerPos.x + cameraDistance * Math.sin(cameraPolar) * Math.sin(cameraAzimuth)+3;
+    const y = playerPos.y + cameraDistance * Math.cos(cameraPolar);
+    const z = playerPos.z + cameraDistance * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
+
+    camera.position.set(x, y, z);
+    camera.lookAt(playerPos);
+  }
+
+  function ballPosition(){
+    // Get ball and player world positions
+    const ballPos = new THREE.Vector3();
+    golfBall.getWorldPosition(ballPos);
+
+    const playerPos = new THREE.Vector3();
+    player.getWorldPosition(playerPos);
+
+    // Get player's "right" direction (perpendicular to forward)
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+    // Vector from player center to ball
+    const toBall = new THREE.Vector3().subVectors(ballPos, playerPos);
+
+    // Project this vector onto the "right" vector
+    ballOffsetToPlayer = -toBall.dot(right); // positive = right, negative = left
+
+    console.log(`Ball is ${ballOffsetToPlayer.toFixed(2)} units to the ${ballOffsetToPlayer >= 0 ? 'right' : 'left'} of the player`);
+  }
+
+  function dragCamera() {
+    // If mouse is NOT down, force the camera behind the player
+    if (!isMouseDown || isPointerOverPad) {
+      // if ((!isMouseDown || isPointerOverPad) && !isZoomingInOrOut) {
+      return
+    }
+    const playerPos = player.position;
+
+    // Convert spherical to Cartesian coordinates
+    const x = playerPos.x + cameraDistance * Math.sin(cameraPolar) * Math.sin(cameraAzimuth);
+    const y = playerPos.y + cameraDistance * Math.cos(cameraPolar);
+    const z = playerPos.z + cameraDistance * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
+
+    camera.position.set(x, y, z);
+    camera.lookAt(playerPos);
+  }
+
+  function onScrollStop() {
+    isZoomingInOrOut=false
+  }
+
+  // Add this to enable scroll zoom
+  function setupCameraZoom() {
+    window.addEventListener('wheel', (event) => {
+      isZoomingInOrOut = true; // trigger camera position update
+      const zoomSpeed = 0.05;
+      const minDistance = 5;
+      const maxDistance = 20;
+      cameraDistance += event.deltaY * zoomSpeed * 0.01;
+      cameraDistance = Math.max(minDistance, Math.min(maxDistance, cameraDistance));
+      // Clear the old timeout and set a new one
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        onScrollStop(); // <- Call your function when scrolling stops
+      }, 100); // 100ms after last scroll event
+    });
+  }
+
+
+  function swingAnimation(){
+    if (swinging) {
+      swingProgress += 0.2; // Speed of swing
+
+      const swingAngle = -Math.sin(swingProgress) * Math.PI / 3; // 45° swing arc
+      player.swingGroup.rotation.z = swingAngle;
+
+
+      if (swingProgress >= Math.PI * 1) {
+        checkShaftBallCollision();
+      }
+      if (swingProgress >= Math.PI * 2) {
+        swinging = false;
+        player.swingGroup.rotation.z = 0;
+      }
+    }
+  }
+
+  function launchBall() {
+    const clubPower = clubs.find(club => club.name === selectedClubName).powerMultiplier
+    // const clubPower = 10
+    const xAngle = clubs.find(club => club.name === selectedClubName).angle
+    const totalPower = (downwardDistance + upwardDistance)/clubPower
+    // const totalPower = 20
+    const degToRad = (deg) => deg * (Math.PI / 180);
+
+    // Get player's rotation + 90 degrees (π/2 radians) for perpendicular direction
+    const perpendicularDirection = player.rotation.y + Math.PI / 2;
+
+    // Convert elevation angle (xAngle) to radians
+    let finalAngle = 0
+    if(ballOffsetToPlayer < 0.34 && ballOffsetToPlayer > 0){
+      finalAngle =  xAngle + (ballOffsetToPlayer*10)
+    } else if (-ballOffsetToPlayer > 0){
+      finalAngle =  xAngle + ((ballOffsetToPlayer)*200)
+    }
+    const xRad = degToRad(finalAngle);
+
+    // Create the horizontal direction vector (90° to where player is facing)
+    const direction = new THREE.Vector3(
+            Math.sin(perpendicularDirection), // x
+            0,
+            Math.cos(perpendicularDirection)  // z
+    );
+
+    // Normalize and apply vertical angle (xAngle)
+    direction.normalize();
+
+    const velocity = new THREE.Vector3(
+            direction.x * Math.cos(xRad),
+            Math.sin(xRad),
+            direction.z * Math.cos(xRad)
+    ).multiplyScalar(totalPower);
+
+    followBallAfterDelay(); // Start camera follow after 1s
+
+    // Set ball velocity
+    golfBall.velocity = velocity;
+  }
+
+  function updateBall(deltaTime) {
+    if (!golfBall.velocity || !hole) return;
+
+    const ballBox = new THREE.Box3().setFromObject(golfBall);
+
+
+    // Apply gravity while in the air
+    if (golfBall.position.y > 0.1 || golfBall.velocity.y > 0.01) {
+      golfBall.velocity.y -= gravity * deltaTime;
+
+      // Update position
+      golfBall.position.addScaledVector(golfBall.velocity, deltaTime);
+    } else {
+      // Ball is on the ground
+      golfBall.position.y = 0.1;
+
+      // Roll on XZ plane using horizontal velocity
+      const horizontalVelocity = new THREE.Vector3(golfBall.velocity.x, 0, golfBall.velocity.z);
+      const speed = horizontalVelocity.length();
+      if (speed < 1) {
+        const holeBox = new THREE.Box3().setFromObject(hole);
+        const inTheHole = holeBox.intersectsBox(ballBox);
+        if(inTheHole){
+          golfBall.visible=false
+        }
+      }
+
+      if (speed > 0.01) {
+        // Apply friction
+        const greenBox = new THREE.Box3().setFromObject(green);
+        const isOnGreen = greenBox.intersectsBox(ballBox);
+        const finalFriction = isOnGreen ? friction/4 : friction
+        const frictionForce = horizontalVelocity.clone().normalize().multiplyScalar(finalFriction * deltaTime);
+        horizontalVelocity.sub(frictionForce);
+
+        // Prevent overshooting friction to negative speed
+        if (horizontalVelocity.length() < 0.01) {
+          horizontalVelocity.set(0, 0, 0);
+        }
+
+        // Update position and velocity
+        golfBall.position.addScaledVector(horizontalVelocity, deltaTime);
+        golfBall.velocity.set(horizontalVelocity.x, 0, horizontalVelocity.z);
+      } else {
+        // Stop the ball
+        golfBall.velocity.set(0, 0, 0);
+      }
+
+      golfBall.launched = false;
+    }
+  }
+
+  function followBallUpdate(){
+    if (followingBall && golfBall.velocity && golfBall.velocity.length() > 0.01) {
+      // Position camera slightly behind and above the ball
+      const offset = new THREE.Vector3(0, 4, 5); // behind/above the ball
+      const cameraPosition = golfBall.position.clone().add(offset);
+      camera.position.lerp(cameraPosition, 0.01); // smooth follow
+
+      // Look at the ball
+      camera.lookAt(golfBall.position);
+    } else if (followingBall && golfBall.velocity.length() <= 0.01) {
+      setTimeout(() => {
+        followingBall = false; // Stop following once ball stops
+        resetCamera();
+      }, 900);
+    }
+  }
+
+  function animate() {
+    stats.begin();
+    walkPlayer();
+    shufflePlayer();
+    dragCamera();
+    updatePlayerRotation();
+    swingAnimation();
+    showConeAboveBallIfFar();
+    followBallUpdate();
+    const delta = clock.getDelta();
+    updateBall(delta);
+    renderer.render(scene, camera);
+
+    stats.end();
+    stats.update()
+    requestAnimationFrame(animate);
+  }
+
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // Start the game
+  init();
+</script>
+</body>
+</html>
