@@ -6,7 +6,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Orbital Camera Game</title>
-  <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+<!--  <script src="http://mrdoob.github.io/stats.js/build/stats.min.js"></script>-->
   <style>
     #scorecard {
       position: absolute;
@@ -257,9 +257,9 @@
   }
 
   // perfermance
-  const stats = new Stats()
-  stats.showPanel(1) // 0: fps, 1: ms, 2: mb, 3+: custom
-  document.body.appendChild(stats.dom)
+  // const stats = new Stats()
+  // stats.showPanel(1) // 0: fps, 1: ms, 2: mb, 3+: custom
+  // document.body.appendChild(stats.dom)
 
   // Weather
   let wind = new THREE.Vector3(); // Global wind vector
@@ -1475,7 +1475,7 @@
   }
 
   function animate() {
-    stats.begin();
+    // stats.begin();
     walkPlayer();
     shufflePlayer();
     dragCamera();
@@ -1488,8 +1488,8 @@
     updateWindArrow();
     renderer.render(scene, camera);
 
-    stats.end();
-    stats.update()
+    // stats.end();
+    // stats.update()
     requestAnimationFrame(animate);
   }
 
