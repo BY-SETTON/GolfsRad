@@ -673,7 +673,7 @@
 
     // Create player
     createPlayer();
-    addDirectionLineToPlayer(player);
+    // addDirectionLineToPlayer(player);
 
     // camera scroll
     setupCameraZoom();
@@ -1590,8 +1590,9 @@ console.log('hit!!');
       golfBall.position.add(normal.clone().multiplyScalar(0.1));
     }
     console.log(ballTrace.length);
+    const maxTrack = drivingRangeMode? 2000: 300
     // Optionally limit total trace points for performance
-    if (ballTrace.length > 2000) {
+    if (ballTrace.length > maxTrack) {
       const oldDot = ballTrace.shift();
       scene.remove(oldDot);
     }
