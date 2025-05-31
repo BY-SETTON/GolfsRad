@@ -1185,7 +1185,7 @@
             (bbox.max.y + bbox.min.y) / 2
     );
 
-    const center3D = new THREE.Vector3(center2D.x +4, 2, center2D.y)
+    const center3D = new THREE.Vector3(center2D.x, 2, center2D.y)
             .applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
             .add(greenPosition);
 
