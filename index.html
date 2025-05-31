@@ -83,13 +83,14 @@
     #instructions {
       position: absolute;
       top: 20px;
-      right: 20px;
+      left: 20px;
       color: white;
       z-index: 100;
       font-size: 16px;
       background: rgba(0,0,0,0.7);
       padding: 15px;
       border-radius: 8px;
+      max-width : 208px;
     }
 
     canvas {
@@ -184,9 +185,11 @@
     <div id="menuModal" class="menu-modal">
       <button id="playButton" class="play-button">Play</button>
     </div>
-    <div>WASD: Shuffle the plater</div>
-    <div>arrows: Walk</div>
-    <div>Drag down and up on the pad on your right, to swing</div>
+    <div style="margin-bottom: 6px">1. ARROWS - Walk</div>
+    <div style="margin-bottom: 6px">2. WASD - Shuffle the player</div>
+    <div style="margin-bottom: 6px">3. QE - Rotate Shuffle the player</div>
+    <div style="margin-bottom: 6px">4. Hold "Space-bar" and move down and up on the pad on the right, to swing</div>
+    <div style="margin-bottom: 6px">5. Click and drag Control camera</div>
     <div class="oval-pad">
       <canvas id="pad-canvas" width="80" height="150"></canvas>
     </div>
@@ -243,14 +246,14 @@
   }
 
   function updateBestScoreDisplay() {
-    const best = getBestScore();
-    const bestScoreElement = document.getElementById('best-score');
-    saveBestScore(totalHits)
-    if (best !== null) {
-      bestScoreElement.textContent = `Best Score: ${best}`;
-    } else {
-      bestScoreElement.textContent = `Best Score: —`;
-    }
+    // const best = getBestScore();
+    // const bestScoreElement = document.getElementById('best-score');
+    // saveBestScore(totalHits)
+    // if (best !== null) {
+    //   bestScoreElement.textContent = `Best Score: ${best}`;
+    // } else {
+    //   bestScoreElement.textContent = `Best Score: —`;
+    // }
   }
 
   // perfermance
@@ -316,7 +319,7 @@
 
   // Camera orbit variables
   let cameraAngle = 0;
-  let cameraDistance = 8;
+  let cameraDistance = 14;
   let cameraAzimuth = 0;     // Horizontal angle (left/right)
   let cameraPolar = Math.PI / 2.5;  // Vertical angle (up/down), in radians
   const cameraTarget = new THREE.Vector3();
@@ -688,7 +691,7 @@
 
     // Finalize player
     player = playerGroup;
-    player.position.set(-1.2, 0.8, 0);
+    player.position.set(-1.2, 0.8, 10);
     player.rotation.y = THREE.MathUtils.degToRad(80);
     player.swingGroup = swingGroup; // store swingGroup reference for animation
 
@@ -1038,19 +1041,19 @@
 
     // Determine movement based on key input
     if (keys['KeyW']) {
-      resetCamera();
+      resetCamera(4);
       direction.add(forward);
     }
     if (keys['KeyS']) {
-      resetCamera();
+      resetCamera(4);
       direction.sub(forward);
     }
     if (keys['KeyA']) {
-      resetCamera();
+      resetCamera(4);
       direction.sub(right);
     }
     if (keys['KeyD']) {
-      resetCamera();
+      resetCamera(4);
       direction.add(right);
     }
 
@@ -1145,7 +1148,7 @@
 
   function createGreen() {
     const shape = new THREE.Shape();
-    shape.absarc(4, 3, 3, Math.PI, Math.PI * 1.5, false);       // Top left curve
+    shape.absarc(-10, 3, 3, Math.PI, Math.PI * 1.5, false);       // Top left curve
     shape.absarc(7, 2, 6, Math.PI * 1.5, Math.PI * 2, false);   // Top right bump
     shape.absarc(7, 8, 6, 0, Math.PI * 0.5, false);             // Bottom right bump
     shape.absarc(4, 8, 9, Math.PI * 0.5, Math.PI, false);       // Bottom left curve
@@ -1187,7 +1190,7 @@
             .add(greenPosition);
 
     // Hole
-    const holeGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.02, 16);
+    const holeGeometry = new THREE.CylinderGeometry(0.24, 0.1, 0.02, 16);
     const holeMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
     hole = new THREE.Mesh(holeGeometry, holeMaterial);
     hole.position.set(center3D.x, 0.01, center3D.z);
@@ -1221,20 +1224,20 @@
     }, 900); // Start following after 1 second
   }
 
-  function resetCamera() {
+  function resetCamera(cameraDistanceProp=cameraDistance) {
 
     if (!player || reset) return;
     reset = true;
 
-    const playerPos = player.position;
+    const golfBallPos = golfBall.position;
 
     // Convert spherical to Cartesian coordinates
-    const x = playerPos.x + cameraDistance * Math.sin(cameraPolar) * Math.sin(cameraAzimuth)+3;
-    const y = playerPos.y + cameraDistance * Math.cos(cameraPolar);
-    const z = playerPos.z + cameraDistance * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
+    const x = golfBallPos.x + cameraDistanceProp * Math.sin(cameraPolar) * Math.sin(cameraAzimuth)+3;
+    const y = golfBallPos.y + cameraDistanceProp * Math.cos(cameraPolar);
+    const z = golfBallPos.z + cameraDistanceProp * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
 
     camera.position.set(x, y, z);
-    camera.lookAt(playerPos);
+    camera.lookAt(golfBallPos);
   }
 
   function ballPosition(){
@@ -1263,15 +1266,15 @@
     if ((!isMouseDown || isPointerOverPad) && !isZoomingInOrOut) {
       return
     }
-    const playerPos = player.position;
+    const golfBallPos = golfBall.position;
 
     // Convert spherical to Cartesian coordinates
-    const x = playerPos.x + cameraDistance * Math.sin(cameraPolar) * Math.sin(cameraAzimuth);
-    const y = playerPos.y + cameraDistance * Math.cos(cameraPolar);
-    const z = playerPos.z + cameraDistance * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
+    const x = golfBallPos.x + cameraDistance * Math.sin(cameraPolar) * Math.sin(cameraAzimuth);
+    const y = golfBallPos.y + cameraDistance * Math.cos(cameraPolar);
+    const z = golfBallPos.z + cameraDistance * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
 
     camera.position.set(x, y, z);
-    camera.lookAt(playerPos);
+    camera.lookAt(golfBallPos);
   }
 
   function onScrollStop() {
