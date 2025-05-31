@@ -157,6 +157,19 @@
       padding: 12px;
     }
 
+    #drivingRangeMode, #courseMode {
+      position: absolute;
+      top: 100px;
+      left: 20px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 12px;
+    }
+
+    #courseMode{
+      display: none;
+    }
+
     #controls{
       display: none;
       padding: 12px;
@@ -258,6 +271,8 @@
       <div id="ballUI"></div>
   </div>
   <div id="showInstructions">show controls</div>
+  <div id="drivingRangeMode">Driving range mode</div>
+  <div id="courseMode">course mode</div>
   <div id="instructions">
     <div id="menuModal" class="menu-modal">
       <button id="playButton" class="play-button">Play</button>
@@ -298,8 +313,19 @@
     document.getElementById('showInstructions').style.display = 'block';
     document.getElementById('controls').style.display = 'none';
   });
+  document.getElementById('drivingRangeMode').addEventListener('click', () => {
+    document.getElementById('courseMode').style.display = 'block';
+    document.getElementById('drivingRangeMode').style.display = 'none';
+    drivingRangeMode=true
+  });
+  document.getElementById('courseMode').addEventListener('click', () => {
+    document.getElementById('drivingRangeMode').style.display = 'block';
+    document.getElementById('courseMode').style.display = 'none';
+    drivingRangeMode=false
+  });
 </script>
 <script>
+  let drivingRangeMode = false
   let totalHits = -1;
 
   // score
@@ -1373,7 +1399,7 @@
     const golfBallPos = golfBall.position;
 
     // Convert spherical to Cartesian coordinates
-    const x = golfBallPos.x + cameraDistanceProp * Math.sin(cameraPolar) * Math.sin(cameraAzimuth)+3;
+    const x = golfBallPos.x + cameraDistanceProp * Math.sin(cameraPolar) * Math.sin(cameraAzimuth);
     const y = golfBallPos.y + cameraDistanceProp * Math.cos(cameraPolar);
     const z = golfBallPos.z + cameraDistanceProp * Math.sin(cameraPolar) * Math.cos(cameraAzimuth);
 
@@ -1518,9 +1544,13 @@
             new THREE.SphereGeometry(0.02, 6, 6),
             new THREE.MeshBasicMaterial({ color: 0xff0000 }) // red color
     );
-    traceDot.position.copy(golfBall.position);
-    scene.add(traceDot);
-    ballTrace.push(traceDot);
+    const totVelocity = golfBall.velocity.x + golfBall.velocity.y +golfBall.velocity.z
+
+    if(totVelocity){
+      traceDot.position.copy(golfBall.position);
+      scene.add(traceDot);
+      ballTrace.push(traceDot);
+    }
 
     // === Collision with obstacles ===
     obstacles.children.forEach((obstacle) => {
@@ -1559,9 +1589,9 @@ console.log('hit!!');
       // Slightly move the ball out to avoid sticking
       golfBall.position.add(normal.clone().multiplyScalar(0.1));
     }
-
+    console.log(ballTrace.length);
     // Optionally limit total trace points for performance
-    if (ballTrace.length > 300) {
+    if (ballTrace.length > 2000) {
       const oldDot = ballTrace.shift();
       scene.remove(oldDot);
     }
@@ -1656,8 +1686,13 @@ console.log('hit!!');
       scrollTimeout = setTimeout(() => {
         followingBall = false; // Stop following once ball stops
         // resetCamera();
-        // scene.remove(golfBall);
-        // createGolfBall()
+        if(drivingRangeMode){
+          scene.remove(golfBall);
+          reset=false
+          resetCamera(12);
+          // camera.lookAt(player.position);
+          createGolfBall();
+        }
       }, 100);
     }
   }
